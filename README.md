@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/CastoriceWish-icon.png" alt="CastoriceWish App 图标" width="160">
+</p>
+
 # CastoriceWish · Releases
 
 本仓库是 **CastoriceWish**（原神 / 崩坏：星穹铁道 Windows 抽卡记录工具）的**公开发行渠道**，只提供经过确认的发行版本与使用说明，不存放开发源代码。
