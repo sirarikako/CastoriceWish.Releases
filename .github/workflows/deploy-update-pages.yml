@@ -1,0 +1,84 @@
+name: Publish update.json to GitHub Pages
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/deploy-update-pages.yml'
+      - 'scripts/prepare_pages_update.py'
+      - 'tests/test_pages_manifest.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: castoricewish-release-pages
+  cancel-in-progress: true
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      release_id: ${{ steps.stage.outputs.release_id }}
+      tag: ${{ steps.stage.outputs.tag }}
+    steps:
+      - name: Checkout public release repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Run offline manifest tests
+        run: python3 -m unittest discover -s tests -p 'test_pages_manifest.py' -v
+      - name: Validate latest stable Release and stage unchanged manifest
+        id: stage
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_RELEASE_ID: ${{ github.event_name == 'release' && github.event.release.id || '' }}
+        run: >-
+          python3 scripts/prepare_pages_update.py --out pages-output
+          --expected-release-id "$EXPECTED_RELEASE_ID"
+      - name: Configure Pages
+        if: github.event_name != 'pull_request'
+        uses: actions/configure-pages@v6
+      - name: Upload Pages artifact
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: pages-output
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: prepare
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Verify release is still latest before deployment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_RELEASE_ID: ${{ needs.prepare.outputs.release_id }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request
+          url = 'https://api.github.com/repos/sirarikako/CastoriceWish.Releases/releases/latest'
+          request = urllib.request.Request(url, headers={
+              'Authorization': 'Bearer ' + os.environ['GH_TOKEN'],
+              'Accept': 'application/vnd.github+json',
+              'User-Agent': 'CastoriceWish-Pages-Deploy',
+          })
+          with urllib.request.urlopen(request, timeout=25) as response:
+              release = json.load(response)
+          if str(release['id']) != os.environ['EXPECTED_RELEASE_ID']:
+              raise SystemExit('Latest Release changed; do not deploy stale metadata')
+          PY
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
